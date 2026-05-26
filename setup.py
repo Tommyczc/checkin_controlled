@@ -1,6 +1,6 @@
 import sys
 import os
-from utils import *
+from utils.pack_tool import run_cmd
 
 
 def check_and_install_pip_tools():
