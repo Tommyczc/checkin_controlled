@@ -22,6 +22,11 @@ def generate_and_install():
     print("requirements.txt 生成成功。")
     run_cmd('piptools sync requirements.txt', "依赖同步失败")
 
+##ios 已弃用
+# def load_wda():
+#     run_cmd("tidevice install wda/WDA.ipa", "错误：无法安装 WDA")
+#     print("WDA已安装成功")
+
 def main():
     print("========================================")
     print(" Python 依赖环境设置脚本")
@@ -32,6 +37,8 @@ def main():
     check_requirements_in()
     print("[3/3] 正在生成 requirements.txt 并安装依赖...")
     generate_and_install()
+    # print("[4/4] 正在安装 WebDriverAgent ...")
+    # load_wda()
     print("========================================")
     print("所有依赖已就绪，环境准备完成！")
     print("========================================")

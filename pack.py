@@ -1,4 +1,4 @@
-from utils import *
+from utils.pack_tool import run_cmd
 
 
 def pack_app():
