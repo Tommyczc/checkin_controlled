@@ -3,6 +3,8 @@ colorlog ##log 要用的包
 ## android包
 Uiautomator2
 opencv-python
+retry
+adbblitz
 #PyDroidCTRL
 
 ## ios包 (ios已弃用)

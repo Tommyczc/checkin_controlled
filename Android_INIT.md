@@ -6,13 +6,3 @@
 ## 安装 ADB 工具库
 - 网站：https://developer.android.com/tools/releases/platform-tools?hl=zh-cn
 - 下载 “SDK Platform-Tools”， 并且对 platform-tools 文件夹 配置环境路径，方便调用
-
-## 部署scrcpy
-- 安装 av 包
-```bash
-conda install -c conda-forge av
-```
-- 安装  pyscrcpy 包
-```bash
-pip install pyscrcpy
-```
