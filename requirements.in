@@ -1,11 +1,11 @@
-colorlog
-#安卓包
-#PyDroidCTRL
-weditor
+colorlog ##log 要用的包
+
+## android包
 Uiautomator2
-pyscrcpy
 opencv-python
-##这3个都是
+#PyDroidCTRL
+
+## ios包 (ios已弃用)
 #pymobiledevice3
 #facebook-wda
 #tidevice

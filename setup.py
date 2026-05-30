@@ -9,7 +9,7 @@ def check_and_install_pip_tools():
         print("pip-tools 已安装。")
     except ImportError:
         print("pip-tools 未安装，正在安装...")
-        run_cmd('pip install pip-tools', "错误：pip-tools 安装失败。")
+        run_cmd('pip install pip-tools<=7.5.3', "错误：pip-tools 安装失败。")
 
 def check_requirements_in():
     if not os.path.exists("requirements.in"):
