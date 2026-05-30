@@ -3,13 +3,13 @@ import os
 from utils.pack_tool import run_cmd
 
 
-def check_and_install_pip_tools():
+def check_and_install_uv():
     try:
-        __import__('piptools')
-        print("pip-tools 已安装。")
+        __import__('uv')
+        print("uv 已安装。")
     except ImportError:
-        print("pip-tools 未安装，正在安装...")
-        run_cmd('pip install pip-tools<=7.5.3', "错误：pip-tools 安装失败。")
+        print("uv 未安装，正在安装...")
+        run_cmd('pip install uv', "错误：uv 安装失败。")
 
 def check_requirements_in():
     if not os.path.exists("requirements.in"):
@@ -18,9 +18,9 @@ def check_requirements_in():
     print("requirements.in 文件存在。")
 
 def generate_and_install():
-    run_cmd('piptools compile --quiet --strip-extras requirements.in', "错误：pip-compile 执行失败。")
+    run_cmd('uv pip compile requirements.in -o requirements.txt', "错误：pip-compile 执行失败。")
     print("requirements.txt 生成成功。")
-    run_cmd('piptools sync requirements.txt', "依赖同步失败")
+    run_cmd('uv pip sync requirements.txt', "依赖同步失败")
 
 ##ios 已弃用
 # def load_wda():
@@ -31,8 +31,8 @@ def main():
     print("========================================")
     print(" Python 依赖环境设置脚本")
     print("========================================")
-    print("[1/3] 检查 pip-tools 是否已安装...")
-    check_and_install_pip_tools()
+    print("[1/3] 检查 uv 是否已安装...")
+    check_and_install_uv()
     print("[2/3] 检查依赖描述文件 requirements.in ...")
     check_requirements_in()
     print("[3/3] 正在生成 requirements.txt 并安装依赖...")

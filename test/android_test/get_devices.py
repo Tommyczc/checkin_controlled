@@ -1,6 +1,6 @@
 import subprocess
 import uiautomator2 as u2
-
+import adbutils as adb
 
 def get_devices():
     """
@@ -32,6 +32,7 @@ def get_devices():
 if __name__ == '__main__':
     device_list = get_devices()
     print("已连接的设备:", device_list)
+
 
     # 遍历设备列表，为每个设备创建一个 uiautomator2 连接对象
     # for serial in device_list:

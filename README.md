@@ -1,7 +1,7 @@
 # 手机远程操作（测试中）
 
 ## 环境初始化
-- Python 解释器版本：3.9
+- Python 解释器版本：3.10
 - 激活你的 Python 打包环境（conda/venv），然后在项目根目录执行：
 ```bash
 python setup.py
