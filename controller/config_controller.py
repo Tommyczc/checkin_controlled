@@ -24,7 +24,7 @@ logger = logger_instance.get_logger()
 class ConfigController():
 
     def __init__(self):
-        self.config_path = Path(__file__).parent.parent / "config" / "config.yaml"
+        self.config_path = Path(__file__).parent.parent /"config.yaml"
         self.cfg = SimpleConfigs(defaults=DEFAULT_SETTINGS, file=str(self.config_path))
         logger.info("配置控制器初始化完成，配置文件路径: %s", self.config_path)
 
