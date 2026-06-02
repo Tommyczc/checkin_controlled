@@ -1,6 +1,10 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
 from controller.devices_controller import devices
+from utils.log import MyLogger
+
+logger_instance = MyLogger()
+logger = logger_instance.get_logger()
 
 router = APIRouter(
     prefix="/operation",
@@ -75,9 +79,11 @@ def _execute_action(remote, action: str, payload: dict):
 @router.websocket("/{device_id}")
 async def operation_websocket(websocket: WebSocket, device_id: str):
     await websocket.accept()
+    logger.info("远程控制 websocket 已连接: %s", device_id)
 
     controller = devices.get_device(device_id, refresh=True)
     if controller is None:
+        logger.warning("远程控制 websocket 连接失败，设备不存在: %s", device_id)
         await websocket.send_json({"ok": False, "error": f"未找到设备: {device_id}"})
         await websocket.close(code=4404)
         return
@@ -97,10 +103,12 @@ async def operation_websocket(websocket: WebSocket, device_id: str):
             payload = await websocket.receive_json()
             action = str(payload.get("action", "")).strip()
             if not action:
+                logger.warning("远程控制 websocket 收到空 action: %s", device_id)
                 await websocket.send_json({"ok": False, "error": "缺少 action 字段"})
                 continue
 
             try:
+                logger.info("执行远程控制动作: device_id=%s, action=%s", device_id, action)
                 result = _execute_action(remote, action, payload)
                 await websocket.send_json(
                     {
@@ -111,6 +119,7 @@ async def operation_websocket(websocket: WebSocket, device_id: str):
                     }
                 )
             except Exception as exc:
+                logger.warning("远程控制动作执行失败: device_id=%s, action=%s, error=%s", device_id, action, exc)
                 await websocket.send_json(
                     {
                         "ok": False,
@@ -120,4 +129,5 @@ async def operation_websocket(websocket: WebSocket, device_id: str):
                     }
                 )
     except WebSocketDisconnect:
+        logger.info("远程控制 websocket 已断开: %s", device_id)
         return

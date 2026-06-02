@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 from typing import Optional
 
 import adbutils
@@ -18,9 +17,11 @@ class DevicesController:
     def __init__(self, auto_connect_remote: bool = False):
         self.auto_connect_remote = auto_connect_remote
         self._devices: dict[str, AndroidController] = {}
+        logger.info("多设备控制器初始化完成，auto_connect_remote=%s", auto_connect_remote)
 
     def refresh_devices(self) -> dict[str, AndroidController]:
         """扫描当前 USB/ADB 设备，并同步本地缓存。"""
+        logger.info("开始刷新安卓设备列表")
         next_devices: dict[str, AndroidController] = {}
 
         for adb_device in adbutils.adb.device_list():
@@ -31,6 +32,7 @@ class DevicesController:
             controller = self._devices.get(adb_device.serial)
 
             if controller is None:
+                logger.info("发现新设备接入: %s (%s)", adb_device.serial, device_info.display_name())
                 controller = AndroidController(device_info=device_info)
                 if self.auto_connect_remote:
                     try:
@@ -45,11 +47,13 @@ class DevicesController:
         removed_ids = set(self._devices) - set(next_devices)
         for device_id in removed_ids:
             try:
+                logger.info("检测到设备离线，开始清理: %s", device_id)
                 self._devices[device_id].close()
             except Exception as exc:
                 logger.warning("清理离线设备 %s 失败: %s", device_id, exc)
 
         self._devices = next_devices
+        logger.info("设备刷新完成，当前在线设备数: %s", len(self._devices))
         return dict(self._devices)
 
     def list_devices(self, refresh: bool = True) -> list[AndroidController]:
@@ -60,15 +64,20 @@ class DevicesController:
     def get_device(self, device_id: str, refresh: bool = False) -> Optional[AndroidController]:
         if refresh:
             self.refresh_devices()
-        return self._devices.get(device_id)
+        controller = self._devices.get(device_id)
+        if controller is None:
+            logger.warning("请求的设备不存在或未在线: %s", device_id)
+        return controller
 
     def get_payloads(self, refresh: bool = True) -> list[dict]:
         return [controller.to_server_payload() for controller in self.list_devices(refresh=refresh)]
 
     def close(self) -> None:
+        logger.info("开始关闭多设备控制器，设备数: %s", len(self._devices))
         for controller in self._devices.values():
             controller.close()
         self._devices.clear()
+        logger.info("多设备控制器已关闭")
 
     def _build_device_info(self, device_id: str) -> AndroidDeviceInfo:
         adb_device = adbutils.adb.device(serial=device_id)

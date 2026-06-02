@@ -13,6 +13,10 @@ from typing import BinaryIO, Generator, Optional
 import av
 import cv2
 import numpy as np
+from utils.log import MyLogger
+
+logger_instance = MyLogger()
+logger = logger_instance.get_logger()
 
 
 class _StreamDrainer(threading.Thread):
@@ -62,12 +66,22 @@ class ScrcpyStreamer:
         self._video_stream: Optional[BinaryIO] = None
         self._local_port: Optional[int] = None
         self._remote_server_path = "/data/local/tmp/scrcpy-server.jar"
+        logger.info(
+            "ScrcpyStreamer 初始化完成: device_id=%s, max_fps=%s, bit_rate=%s, max_size=%s, video_codec=%s, server_version=%s",
+            device_id,
+            max_fps,
+            bit_rate,
+            max_size,
+            video_codec,
+            self.server_version,
+        )
 
     def start(self) -> None:
         """启动 scrcpy standalone server，并建立视频 socket。"""
         if self.server_process is not None:
             raise RuntimeError("Scrcpy stream already running")
 
+        logger.info("开始启动 scrcpy 镜像流: %s", self.device_id)
         _ensure_binary("adb")
         _ensure_binary("scrcpy")
 
@@ -78,9 +92,11 @@ class ScrcpyStreamer:
         self._forward_socket(self._local_port)
         self._start_server_process()
         self._connect_video_socket(self._local_port)
+        logger.info("scrcpy 镜像流启动成功: device_id=%s, local_port=%s", self.device_id, self._local_port)
 
     def stop(self) -> None:
         """关闭 socket、服务端进程和 adb 转发。"""
+        logger.info("开始停止 scrcpy 镜像流: %s", self.device_id)
         if self._video_stream is not None:
             self._video_stream.close()
             self._video_stream = None
@@ -103,6 +119,7 @@ class ScrcpyStreamer:
             self._local_port = None
 
         self._server_log_drainers.clear()
+        logger.info("scrcpy 镜像流已停止: %s", self.device_id)
 
     @property
     def stdout(self) -> BinaryIO:
@@ -129,6 +146,7 @@ class ScrcpyStreamer:
 
     def preview(self, display_name: str = "Scrcpy Stream") -> None:
         """直接预览当前设备的视频流，按 q 退出。"""
+        logger.info("开始本地预览镜像流: device_id=%s, display_name=%s", self.device_id, display_name)
         try:
             for frame in self.iter_frames():
                 cv2.imshow(display_name, frame)
@@ -136,11 +154,13 @@ class ScrcpyStreamer:
                     break
         finally:
             cv2.destroyAllWindows()
+            logger.info("本地预览已结束: %s", self.device_id)
 
     def _adb_cmd(self, *args: str) -> list[str]:
         return ["adb", "-s", self.device_id, *args]
 
     def _push_server(self, server_path: Path) -> None:
+        logger.info("开始推送 scrcpy-server: device_id=%s, server_path=%s", self.device_id, server_path)
         result = subprocess.run(
             self._adb_cmd("push", str(server_path), self._remote_server_path),
             capture_output=True,
@@ -148,9 +168,12 @@ class ScrcpyStreamer:
             check=False,
         )
         if result.returncode != 0:
+            logger.warning("推送 scrcpy-server 失败: device_id=%s", self.device_id)
             raise RuntimeError(f"推送 scrcpy-server 失败: {result.stderr.strip() or result.stdout.strip()}")
+        logger.info("推送 scrcpy-server 成功: %s", self.device_id)
 
     def _forward_socket(self, local_port: int) -> None:
+        logger.info("开始创建 adb forward: device_id=%s, local_port=%s", self.device_id, local_port)
         result = subprocess.run(
             self._adb_cmd("forward", f"tcp:{local_port}", "localabstract:scrcpy"),
             capture_output=True,
@@ -158,7 +181,9 @@ class ScrcpyStreamer:
             check=False,
         )
         if result.returncode != 0:
+            logger.warning("创建 adb forward 失败: device_id=%s, local_port=%s", self.device_id, local_port)
             raise RuntimeError(f"创建 scrcpy adb forward 失败: {result.stderr.strip() or result.stdout.strip()}")
+        logger.info("adb forward 创建成功: device_id=%s, local_port=%s", self.device_id, local_port)
 
     def _start_server_process(self) -> None:
         server_args = [
@@ -182,7 +207,7 @@ class ScrcpyStreamer:
                 *[shlex.quote(arg) for arg in server_args],
             ]
         )
-        print("current command:", remote_command)
+        logger.info("准备启动 scrcpy server: device_id=%s, command=%s", self.device_id, remote_command)
         self.server_process = subprocess.Popen(
             self._adb_cmd("shell", remote_command),
             stdout=subprocess.PIPE,
@@ -197,7 +222,9 @@ class ScrcpyStreamer:
 
         time.sleep(0.4)
         if self.server_process.poll() is not None:
+            logger.warning("scrcpy server 启动失败: %s", self.device_id)
             raise RuntimeError(f"scrcpy server 启动失败:\n{self._server_logs() or '未捕获到详细日志'}")
+        logger.info("scrcpy server 进程已启动: %s", self.device_id)
 
     def _connect_video_socket(self, local_port: int, timeout_seconds: float = 5.0) -> None:
         deadline = time.time() + timeout_seconds
@@ -205,6 +232,7 @@ class ScrcpyStreamer:
 
         while time.time() < deadline:
             if self.server_process is not None and self.server_process.poll() is not None:
+                logger.warning("scrcpy server 在建连前已退出: %s", self.device_id)
                 raise RuntimeError(f"scrcpy server 已退出:\n{self._server_logs() or '未捕获到详细日志'}")
 
             try:
@@ -214,11 +242,13 @@ class ScrcpyStreamer:
                 sock.settimeout(None)
                 self._video_socket = sock
                 self._video_stream = sock.makefile("rb")
+                logger.info("scrcpy 视频 socket 建连成功: device_id=%s, local_port=%s", self.device_id, local_port)
                 return
             except OSError as exc:
                 last_error = exc
                 time.sleep(0.1)
 
+        logger.warning("连接 scrcpy 视频 socket 失败: device_id=%s, local_port=%s, error=%s", self.device_id, local_port, last_error)
         raise RuntimeError(f"连接 scrcpy 视频 socket 失败: {last_error}")
 
     def _server_logs(self) -> str:
@@ -228,6 +258,7 @@ class ScrcpyStreamer:
 def _ensure_binary(binary_name: str) -> None:
     if shutil.which(binary_name):
         return
+    logger.warning("依赖缺失，未找到可执行文件: %s", binary_name)
     raise RuntimeError(f"未找到 `{binary_name}`，请先确认它已安装并加入 PATH")
 
 
@@ -269,8 +300,10 @@ def _detect_first_device_id() -> str:
             device_ids.append(parts[0])
 
     if not device_ids:
+        logger.warning("未检测到可用安卓设备")
         raise RuntimeError("未检测到可用安卓设备，请先连接手机并开启 USB 调试")
 
+    logger.info("自动选中第一台在线设备: %s", device_ids[0])
     return device_ids[0]
 
 
@@ -287,8 +320,10 @@ def _resolve_scrcpy_server_path() -> Path:
 
     for candidate in candidate_paths:
         if candidate.exists():
+            logger.info("检测到 scrcpy-server 路径: %s", candidate)
             return candidate
 
+    logger.warning("未找到 scrcpy-server 文件")
     raise RuntimeError("未找到 scrcpy-server 文件，请检查 scrcpy 安装是否完整")
 
 
