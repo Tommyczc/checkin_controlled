@@ -1,6 +1,4 @@
 import subprocess
-import uiautomator2 as u2
-import adbutils as adb
 
 def get_devices():
     """

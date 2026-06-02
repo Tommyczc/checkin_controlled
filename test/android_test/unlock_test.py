@@ -34,5 +34,5 @@ def unlock_device(d, password="your_pin"):
         print(f"解锁过程中出错: {e}")
 
 if __name__ == '__main__':
-    d = u2.connect()
+    d = u2.connect(serial="MDX0220723002243")
     unlock_device(d, "258000")

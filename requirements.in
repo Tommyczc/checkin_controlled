@@ -1,14 +1,13 @@
 ##通用
 colorlog ##log 要用的包
 numpy
-
+fastapi
 ## 配置包
 pyscfg
 
 ## android包
 Uiautomator2
 opencv-python
-retry
 adbutils
 av
 #PyDroidCTRL

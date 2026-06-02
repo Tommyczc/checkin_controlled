@@ -17,7 +17,7 @@ class MyLogger:
 
     def setup_logger(self, main_log_level=logging.INFO, console_log_level=logging.INFO, file_log_level=logging.INFO):
         # 获取当前日期作为文件名的一部分
-        current_date = datetime.now().strftime('%Y%m%d%H%M%S')
+        current_date = datetime.now().strftime('%Y%m%d')
 
         # 创建 result 文件夹
         dir_ = os.path.realpath(os.path.dirname(sys.argv[0]))+ '/log'
