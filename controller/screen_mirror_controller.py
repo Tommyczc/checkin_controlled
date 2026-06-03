@@ -88,6 +88,7 @@ class ScrcpyStreamer:
         logger.info("开始启动 scrcpy 镜像流: %s", self.device_id)
         _ensure_binary("adb")
         _ensure_binary("scrcpy")
+        _ensure_adb_server()
 
         server_path = _resolve_scrcpy_server_path()
         self._local_port = _pick_free_port()
@@ -177,16 +178,11 @@ class ScrcpyStreamer:
             logger.info("本地预览已结束: %s", self.device_id)
 
     def _adb_cmd(self, *args: str) -> list[str]:
-        return ["adb", "-s", self.device_id, *args]
+        return [_adb_binary(), "-s", self.device_id, *args]
 
     def _push_server(self, server_path: Path) -> None:
         logger.info("开始推送 scrcpy-server: device_id=%s, server_path=%s", self.device_id, server_path)
-        result = subprocess.run(
-            self._adb_cmd("push", str(server_path), self._remote_server_path),
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        result = self._run_adb_command("push", str(server_path), self._remote_server_path)
         if result.returncode != 0:
             logger.warning("推送 scrcpy-server 失败: device_id=%s", self.device_id)
             raise RuntimeError(f"推送 scrcpy-server 失败: {result.stderr.strip() or result.stdout.strip()}")
@@ -194,16 +190,33 @@ class ScrcpyStreamer:
 
     def _forward_socket(self, local_port: int) -> None:
         logger.info("开始创建 adb forward: device_id=%s, local_port=%s", self.device_id, local_port)
-        result = subprocess.run(
-            self._adb_cmd("forward", f"tcp:{local_port}", "localabstract:scrcpy"),
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        result = self._run_adb_command("forward", f"tcp:{local_port}", "localabstract:scrcpy")
         if result.returncode != 0:
             logger.warning("创建 adb forward 失败: device_id=%s, local_port=%s", self.device_id, local_port)
             raise RuntimeError(f"创建 scrcpy adb forward 失败: {result.stderr.strip() or result.stdout.strip()}")
         logger.info("adb forward 创建成功: device_id=%s, local_port=%s", self.device_id, local_port)
+
+    def _run_adb_command(self, *args: str) -> subprocess.CompletedProcess[str]:
+        result = subprocess.run(
+            self._adb_cmd(*args),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        if result.returncode == 0:
+            return result
+
+        combined_output = f"{result.stdout}\n{result.stderr}".lower()
+        if "daemon not running" in combined_output or "cannot connect to daemon" in combined_output:
+            logger.info("检测到 adb server 未就绪，尝试拉起后重试: device_id=%s, args=%s", self.device_id, args)
+            _ensure_adb_server()
+            return subprocess.run(
+                self._adb_cmd(*args),
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        return result
 
     def _start_server_process(self) -> None:
         server_args = [
@@ -292,6 +305,27 @@ def _ensure_binary(binary_name: str) -> None:
     raise RuntimeError(f"未找到 `{binary_name}`，请先确认它已安装并加入 PATH")
 
 
+def _adb_binary() -> str:
+    return os.environ.get("ADB") or "adb"
+
+
+def _ensure_adb_server() -> None:
+    adb_binary = _adb_binary()
+    logger.info("检查 adb server 状态: %s", adb_binary)
+    result = subprocess.run(
+        [adb_binary, "start-server"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        logger.warning("启动 adb server 失败: %s", result.stderr.strip() or result.stdout.strip())
+        raise RuntimeError(f"启动 adb server 失败: {result.stderr.strip() or result.stdout.strip()}")
+    output = (result.stdout.strip() or result.stderr.strip())
+    if output:
+        logger.info("adb server 已就绪: %s", output)
+
+
 def _detect_scrcpy_version() -> str:
     result = subprocess.run(
         ["scrcpy", "--version"],
@@ -311,7 +345,7 @@ def _detect_scrcpy_version() -> str:
 
 def _detect_first_device_id() -> str:
     result = subprocess.run(
-        ["adb", "devices"],
+        [_adb_binary(), "devices"],
         capture_output=True,
         text=True,
         check=False,

@@ -12,13 +12,13 @@ android:
   refresh_interval: 5
   tasks:
     enabled: []
-tools:
-  macos:
-    adb_root_dir: ""
-    scrcpy_root_dir: ""
-  windows:
-    adb_root_dir: ""
-    scrcpy_root_dir: ""
 server:
   ip: 0.0.0.0
   port: 8000
+tools:
+  macos:
+    adb_root_dir: ''
+    scrcpy_root_dir: ''
+  windows:
+    adb_root_dir: ''
+    scrcpy_root_dir: ''
