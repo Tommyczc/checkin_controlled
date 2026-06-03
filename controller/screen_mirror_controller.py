@@ -65,6 +65,8 @@ class ScrcpyStreamer:
         self._video_socket: Optional[socket.socket] = None
         self._video_stream: Optional[BinaryIO] = None
         self._local_port: Optional[int] = None
+        self._video_size_lock = threading.Lock()
+        self._video_size: Optional[tuple[int, int]] = None
         self._remote_server_path = "/data/local/tmp/scrcpy-server.jar"
         logger.info(
             "ScrcpyStreamer 初始化完成: device_id=%s, max_fps=%s, bit_rate=%s, max_size=%s, video_codec=%s, server_version=%s",
@@ -81,6 +83,7 @@ class ScrcpyStreamer:
         if self.server_process is not None:
             raise RuntimeError("Scrcpy stream already running")
 
+        self._set_video_size(None)
         logger.info("开始启动 scrcpy 镜像流: %s", self.device_id)
         _ensure_binary("adb")
         _ensure_binary("scrcpy")
@@ -119,6 +122,7 @@ class ScrcpyStreamer:
             self._local_port = None
 
         self._server_log_drainers.clear()
+        self._set_video_size(None)
         logger.info("scrcpy 镜像流已停止: %s", self.device_id)
 
     @property
@@ -131,6 +135,10 @@ class ScrcpyStreamer:
     def is_running(self) -> bool:
         return self.server_process is not None and self.server_process.poll() is None
 
+    def get_video_size(self) -> Optional[tuple[int, int]]:
+        with self._video_size_lock:
+            return self._video_size
+
     def open_container(self) -> av.container.InputContainer:
         """使用 PyAV 打开 scrcpy 原始视频流。"""
         return av.open(self.stdout, mode="r", format=self.video_codec)
@@ -139,7 +147,18 @@ class ScrcpyStreamer:
         """持续解码视频流，返回 OpenCV 可用的 BGR 帧。"""
         container = self.open_container()
         try:
+            if container.streams.video:
+                stream = container.streams.video[0]
+                width = getattr(stream.codec_context, "width", 0)
+                height = getattr(stream.codec_context, "height", 0)
+                if width and height:
+                    self._set_video_size((width, height))
+
             for frame in container.decode(video=0):
+                width = getattr(frame, "width", 0)
+                height = getattr(frame, "height", 0)
+                if width and height:
+                    self._set_video_size((width, height))
                 yield frame.to_ndarray(format="bgr24")
         finally:
             container.close()
@@ -197,8 +216,14 @@ class ScrcpyStreamer:
             f"video_bit_rate={self.bit_rate}",
             f"max_fps={self.max_fps}",
         ]
-        if self.max_size is not None:
+        if self.max_size is not None and self.max_size > 0:
             server_args.append(f"max_size={self.max_size}")
+        elif self.max_size is not None:
+            logger.info(
+                "max_size=%s，按设备原始分辨率输出 scrcpy 视频流: %s",
+                self.max_size,
+                self.device_id,
+            )
 
         remote_command = " ".join(
             [
@@ -253,6 +278,10 @@ class ScrcpyStreamer:
 
     def _server_logs(self) -> str:
         return "\n".join(filter(None, (drainer.get_text() for drainer in self._server_log_drainers))).strip()
+
+    def _set_video_size(self, video_size: Optional[tuple[int, int]]) -> None:
+        with self._video_size_lock:
+            self._video_size = video_size
 
 
 def _ensure_binary(binary_name: str) -> None:

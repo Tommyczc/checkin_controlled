@@ -43,7 +43,14 @@ class RemoteOperationController:
         logger.info("开始建立 uiautomator2 连接: %s", self.device_id)
         device = u2.connect(self.device_id)
         if self.healthcheck:
-            device.healthcheck()
+            healthcheck = getattr(device, "healthcheck", None)
+            if callable(healthcheck):
+                healthcheck()
+            else:
+                logger.info(
+                    "当前 uiautomator2 连接对象不支持 healthcheck，跳过初始化检查: %s",
+                    self.device_id,
+                )
 
         self._device = device
         logger.info("uiautomator2 连接成功: %s", self.device_id)
