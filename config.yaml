@@ -1,0 +1,24 @@
+android:
+  auto_connect_remote: false
+  mirror:
+    bit_rate: 8000000
+    jpeg_quality: 60
+    max_fps: 60
+    max_size: 0
+    output_max_fps: 20
+    output_max_size: 0
+    show: false
+    video_codec: h264
+  refresh_interval: 5
+  tasks:
+    enabled: []
+tools:
+  macos:
+    adb_root_dir: ""
+    scrcpy_root_dir: ""
+  windows:
+    adb_root_dir: ""
+    scrcpy_root_dir: ""
+server:
+  ip: 0.0.0.0
+  port: 8000
