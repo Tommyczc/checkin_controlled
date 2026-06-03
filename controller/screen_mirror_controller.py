@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import shlex
 import shutil
 import socket
@@ -339,10 +340,20 @@ def _detect_first_device_id() -> str:
 def _resolve_scrcpy_server_path() -> Path:
     scrcpy_binary = shutil.which("scrcpy")
     if not scrcpy_binary:
-        raise RuntimeError("未找到 scrcpy，可先执行 `brew install scrcpy`")
+        raise RuntimeError("未找到 scrcpy，请先确认它已安装并加入 PATH")
+
+    env_server_path = os.environ.get("SCRCPY_SERVER_PATH")
+    if env_server_path:
+        candidate = Path(env_server_path).expanduser().resolve()
+        if candidate.exists():
+            logger.info("使用环境变量指定的 scrcpy-server 路径: %s", candidate)
+            return candidate
+        logger.warning("SCRCPY_SERVER_PATH 指向的文件不存在: %s", candidate)
 
     resolved_binary = Path(scrcpy_binary).resolve()
     candidate_paths = [
+        resolved_binary.parent / "scrcpy-server",
+        resolved_binary.parent / "scrcpy-server.jar",
         resolved_binary.parent.parent / "share" / "scrcpy" / "scrcpy-server",
         resolved_binary.parent.parent / "share" / "scrcpy" / "scrcpy-server.jar",
     ]
@@ -353,7 +364,10 @@ def _resolve_scrcpy_server_path() -> Path:
             return candidate
 
     logger.warning("未找到 scrcpy-server 文件")
-    raise RuntimeError("未找到 scrcpy-server 文件，请检查 scrcpy 安装是否完整")
+    raise RuntimeError(
+        "未找到 scrcpy-server 文件，请检查 scrcpy 安装目录；Windows 下通常应与 scrcpy.exe 位于同一目录，"
+        "也可通过环境变量 SCRCPY_SERVER_PATH 显式指定"
+    )
 
 
 def _pick_free_port() -> int:
