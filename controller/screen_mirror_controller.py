@@ -309,21 +309,62 @@ def _adb_binary() -> str:
     return os.environ.get("ADB") or "adb"
 
 
-def _ensure_adb_server() -> None:
-    adb_binary = _adb_binary()
-    logger.info("检查 adb server 状态: %s", adb_binary)
-    result = subprocess.run(
-        [adb_binary, "start-server"],
+def _run_host_command(*args: str) -> subprocess.CompletedProcess[str]:
+    creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+    return subprocess.run(
+        list(args),
         capture_output=True,
         text=True,
         check=False,
+        creationflags=creationflags,
     )
-    if result.returncode != 0:
-        logger.warning("启动 adb server 失败: %s", result.stderr.strip() or result.stdout.strip())
-        raise RuntimeError(f"启动 adb server 失败: {result.stderr.strip() or result.stdout.strip()}")
-    output = (result.stdout.strip() or result.stderr.strip())
-    if output:
-        logger.info("adb server 已就绪: %s", output)
+
+
+def _format_command_output(result: subprocess.CompletedProcess[str]) -> str:
+    parts = [part.strip() for part in [result.stdout, result.stderr] if part and part.strip()]
+    return "\n".join(parts)
+
+
+def _probe_adb_server(adb_binary: str) -> subprocess.CompletedProcess[str]:
+    return _run_host_command(adb_binary, "devices")
+
+
+def _ensure_adb_server() -> None:
+    adb_binary = _adb_binary()
+    logger.info("检查 adb server 状态: %s", adb_binary)
+    start_result = _run_host_command(adb_binary, "start-server")
+    probe_result = _probe_adb_server(adb_binary)
+
+    if start_result.returncode == 0 and probe_result.returncode == 0:
+        output = _format_command_output(start_result)
+        if output:
+            logger.info("adb server 已就绪: %s", output)
+        return
+
+    logger.warning(
+        "adb server 初次启动或校验失败，尝试重置: start=%s, probe=%s",
+        _format_command_output(start_result) or "<empty>",
+        _format_command_output(probe_result) or "<empty>",
+    )
+    _run_host_command(adb_binary, "kill-server")
+    time.sleep(0.5)
+
+    retry_start_result = _run_host_command(adb_binary, "start-server")
+    retry_probe_result = _probe_adb_server(adb_binary)
+    if retry_start_result.returncode == 0 and retry_probe_result.returncode == 0:
+        output = _format_command_output(retry_start_result)
+        if output:
+            logger.info("adb server 重置后已恢复: %s", output)
+        return
+
+    error_message = (
+        "启动 adb server 失败:\n"
+        f"start-server:\n{_format_command_output(retry_start_result) or '<empty>'}\n"
+        f"devices:\n{_format_command_output(retry_probe_result) or '<empty>'}\n"
+        "请检查 5037 端口是否被其它 adb 或非 adb 进程占用，以及当前配置的 adb 是否可单独正常执行"
+    )
+    logger.warning(error_message)
+    raise RuntimeError(error_message)
 
 
 def _detect_scrcpy_version() -> str:
