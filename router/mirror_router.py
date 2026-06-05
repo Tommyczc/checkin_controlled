@@ -1,5 +1,7 @@
 import asyncio
+import threading
 import time
+from typing import Optional
 
 import cv2
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
@@ -19,19 +21,68 @@ router = APIRouter(
 _mirror_locks: dict[str, asyncio.Lock] = {}
 
 
+class _LatestFrameReader:
+    def __init__(self, streamer):
+        self._streamer = streamer
+        self._lock = threading.Lock()
+        self._event = threading.Event()
+        self._latest_frame = None
+        self._error: Optional[Exception] = None
+        self._ended = False
+        self._stopped = False
+        self._thread = threading.Thread(target=self._run, daemon=True)
+
+    def start(self) -> None:
+        self._thread.start()
+
+    def stop(self) -> None:
+        self._stopped = True
+        self._event.set()
+
+    def is_ended(self) -> bool:
+        with self._lock:
+            return self._ended
+
+    def get_latest(self, timeout: float = 1.0):
+        self._event.wait(timeout)
+        with self._lock:
+            if self._error is not None:
+                raise self._error
+
+            frame = self._latest_frame
+            self._latest_frame = None
+
+            if self._latest_frame is None:
+                self._event.clear()
+
+            if frame is None and self._ended:
+                return None
+            return frame
+
+    def _run(self) -> None:
+        try:
+            for frame in self._streamer.iter_frames():
+                if self._stopped:
+                    break
+                with self._lock:
+                    self._latest_frame = frame
+                    self._event.set()
+        except Exception as exc:
+            with self._lock:
+                self._error = exc
+                self._event.set()
+        finally:
+            with self._lock:
+                self._ended = True
+                self._event.set()
+
+
 def _get_device_lock(device_id: str) -> asyncio.Lock:
     lock = _mirror_locks.get(device_id)
     if lock is None:
         lock = asyncio.Lock()
         _mirror_locks[device_id] = lock
     return lock
-
-
-def _next_frame(iterator):
-    try:
-        return next(iterator)
-    except StopIteration:
-        return None
 
 
 def _format_resolution(video_size):
@@ -148,7 +199,6 @@ async def mirror_websocket(websocket: WebSocket, device_id: str):
             output_max_fps = max(0.0, _get_float_config("android.mirror.output_max_fps", 20.0))
             output_max_size = max(0, _get_int_config("android.mirror.output_max_size", 0))
             send_interval = 1.0 / output_max_fps if output_max_fps > 0 else 0.0
-            last_sent_at = 0.0
 
             logger.info("开始按需启动镜像流: %s", device_id)
             streamer = controller.start_mirror(
@@ -179,11 +229,18 @@ async def mirror_websocket(websocket: WebSocket, device_id: str):
                 }
             )
 
-            frame_iterator = streamer.iter_frames()
+            frame_reader = _LatestFrameReader(streamer)
+            frame_reader.start()
+            next_send_at = time.monotonic()
 
             while True:
-                frame = await asyncio.to_thread(_next_frame, frame_iterator)
-                if frame is None:
+                if send_interval > 0:
+                    sleep_seconds = next_send_at - time.monotonic()
+                    if sleep_seconds > 0:
+                        await asyncio.sleep(sleep_seconds)
+
+                frame = await asyncio.to_thread(frame_reader.get_latest, 1.0)
+                if frame is None and frame_reader.is_ended():
                     logger.warning("镜像流已结束: %s", device_id)
                     await websocket.send_json(
                         {
@@ -194,9 +251,7 @@ async def mirror_websocket(websocket: WebSocket, device_id: str):
                         }
                     )
                     break
-
-                now = time.monotonic()
-                if send_interval > 0 and now - last_sent_at < send_interval:
+                if frame is None:
                     continue
 
                 frame = _resize_frame(frame, output_max_size)
@@ -209,7 +264,8 @@ async def mirror_websocket(websocket: WebSocket, device_id: str):
                     continue
 
                 await websocket.send_bytes(encoded.tobytes())
-                last_sent_at = time.monotonic()
+                sent_at = time.monotonic()
+                next_send_at = sent_at + send_interval if send_interval > 0 else sent_at
         except WebSocketDisconnect:
             logger.info("镜像 websocket 已断开: %s", device_id)
             pass
@@ -227,6 +283,8 @@ async def mirror_websocket(websocket: WebSocket, device_id: str):
             except Exception:
                 pass
         finally:
+            if "frame_reader" in locals():
+                frame_reader.stop()
             if streamer is not None:
                 logger.info("镜像 websocket 结束，停止镜像流: %s", device_id)
                 controller.stop_mirror()

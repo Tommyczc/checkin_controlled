@@ -4,6 +4,7 @@ import time
 from typing import Any, Optional
 
 import uiautomator2 as u2
+from controller.screen_mirror_controller import ensure_adb_server
 from utils.log import MyLogger
 
 logger_instance = MyLogger()
@@ -41,7 +42,13 @@ class RemoteOperationController:
             return self._device
 
         logger.info("开始建立 uiautomator2 连接: %s", self.device_id)
-        device = u2.connect(self.device_id)
+        ensure_adb_server()
+        try:
+            device = u2.connect(self.device_id)
+        except Exception as exc:
+            logger.warning("uiautomator2 连接失败，尝试恢复 adb server 后重试: device_id=%s, error=%s", self.device_id, exc)
+            ensure_adb_server(allow_reset=_should_reset_adb(exc))
+            device = u2.connect(self.device_id)
         if self.healthcheck:
             healthcheck = getattr(device, "healthcheck", None)
             if callable(healthcheck):
@@ -116,3 +123,8 @@ class RemoteOperationController:
 
     def wait(self, seconds: float) -> None:
         time.sleep(seconds)
+
+
+def _should_reset_adb(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return "adb server version" in message or "doesn't match this client" in message or "protocol fault" in message

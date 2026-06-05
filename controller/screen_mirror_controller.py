@@ -19,6 +19,19 @@ from utils.log import MyLogger
 logger_instance = MyLogger()
 logger = logger_instance.get_logger()
 
+_ADB_SERVER_LOCK = threading.RLock()
+_ADB_DAEMON_ERRORS = (
+    "daemon not running",
+    "cannot connect to daemon",
+    "cannot connect to adb daemon",
+    "failed to check server version",
+)
+_ADB_RESET_ERRORS = (
+    "adb server version",
+    "doesn't match this client",
+    "protocol fault",
+)
+
 
 class _StreamDrainer(threading.Thread):
     """后台消费进程日志，避免管道堵塞。"""
@@ -49,8 +62,8 @@ class ScrcpyStreamer:
         self,
         device_id: str,
         max_fps: int = 30,
-        bit_rate: int = 8_000_000,
-        max_size: Optional[int] = None,
+        bit_rate: int = 4_000_000,
+        max_size: Optional[int] = 1280,
         video_codec: str = "h264",
         server_version: Optional[str] = None,
     ):
@@ -59,7 +72,7 @@ class ScrcpyStreamer:
         self.bit_rate = bit_rate
         self.max_size = max_size
         self.video_codec = video_codec
-        self.server_version = server_version or _detect_scrcpy_version()
+        self.server_version = server_version
 
         self.server_process: Optional[subprocess.Popen] = None
         self._server_log_drainers: list[_StreamDrainer] = []
@@ -88,7 +101,7 @@ class ScrcpyStreamer:
         logger.info("开始启动 scrcpy 镜像流: %s", self.device_id)
         _ensure_binary("adb")
         _ensure_binary("scrcpy")
-        _ensure_adb_server()
+        ensure_adb_server()
 
         server_path = _resolve_scrcpy_server_path()
         self._local_port = _pick_free_port()
@@ -120,6 +133,7 @@ class ScrcpyStreamer:
                 capture_output=True,
                 text=True,
                 check=False,
+                creationflags=_subprocess_creationflags(),
             )
             self._local_port = None
 
@@ -202,25 +216,27 @@ class ScrcpyStreamer:
             capture_output=True,
             text=True,
             check=False,
+            creationflags=_subprocess_creationflags(),
         )
         if result.returncode == 0:
             return result
 
         combined_output = f"{result.stdout}\n{result.stderr}".lower()
-        if "daemon not running" in combined_output or "cannot connect to daemon" in combined_output:
+        if _has_any(combined_output, _ADB_DAEMON_ERRORS):
             logger.info("检测到 adb server 未就绪，尝试拉起后重试: device_id=%s, args=%s", self.device_id, args)
-            _ensure_adb_server()
+            ensure_adb_server(allow_reset=_has_any(combined_output, _ADB_RESET_ERRORS))
             return subprocess.run(
                 self._adb_cmd(*args),
                 capture_output=True,
                 text=True,
                 check=False,
+                creationflags=_subprocess_creationflags(),
             )
         return result
 
     def _start_server_process(self) -> None:
         server_args = [
-            self.server_version,
+            self._server_version(),
             "tunnel_forward=true",
             "audio=false",
             "control=false",
@@ -252,6 +268,7 @@ class ScrcpyStreamer:
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             bufsize=0,
+            creationflags=_subprocess_creationflags(),
         )
 
         for stream in [self.server_process.stdout, self.server_process.stderr]:
@@ -297,8 +314,18 @@ class ScrcpyStreamer:
         with self._video_size_lock:
             self._video_size = video_size
 
+    def _server_version(self) -> str:
+        if self.server_version is None:
+            self.server_version = _detect_scrcpy_version()
+        return self.server_version
+
 
 def _ensure_binary(binary_name: str) -> None:
+    env_name = binary_name.upper()
+    env_binary = os.environ.get(env_name)
+    if env_binary and Path(env_binary).exists():
+        return
+
     if shutil.which(binary_name):
         return
     logger.warning("依赖缺失，未找到可执行文件: %s", binary_name)
@@ -309,14 +336,21 @@ def _adb_binary() -> str:
     return os.environ.get("ADB") or "adb"
 
 
+def _scrcpy_binary() -> str:
+    return os.environ.get("SCRCPY") or "scrcpy"
+
+
+def _subprocess_creationflags() -> int:
+    return subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+
+
 def _run_host_command(*args: str) -> subprocess.CompletedProcess[str]:
-    creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
     return subprocess.run(
         list(args),
         capture_output=True,
         text=True,
         check=False,
-        creationflags=creationflags,
+        creationflags=_subprocess_creationflags(),
     )
 
 
@@ -329,23 +363,65 @@ def _probe_adb_server(adb_binary: str) -> subprocess.CompletedProcess[str]:
     return _run_host_command(adb_binary, "devices")
 
 
-def _ensure_adb_server() -> None:
+def ensure_adb_server(allow_reset: bool = False) -> None:
+    """Ensure adb server is reachable without racing other adb clients."""
+    with _ADB_SERVER_LOCK:
+        _ensure_adb_server_locked(allow_reset=allow_reset)
+
+
+def _ensure_adb_server_locked(allow_reset: bool = False) -> None:
     adb_binary = _adb_binary()
     logger.info("检查 adb server 状态: %s", adb_binary)
-    start_result = _run_host_command(adb_binary, "start-server")
-    probe_result = _probe_adb_server(adb_binary)
 
-    if start_result.returncode == 0 and probe_result.returncode == 0:
-        output = _format_command_output(start_result)
-        if output:
-            logger.info("adb server 已就绪: %s", output)
-        return
+    last_start_result: subprocess.CompletedProcess[str] | None = None
+    last_probe_result: subprocess.CompletedProcess[str] | None = None
+
+    for attempt in range(1, 6):
+        last_start_result = _run_host_command(adb_binary, "start-server")
+        time.sleep(0.15 * attempt)
+        last_probe_result = _probe_adb_server(adb_binary)
+
+        if last_start_result.returncode == 0 and last_probe_result.returncode == 0:
+            output = _format_command_output(last_start_result)
+            if output:
+                logger.info("adb server 已就绪: %s", output)
+            return
+
+        combined_output = _combined_command_output(last_start_result, last_probe_result).lower()
+        if allow_reset or _has_any(combined_output, _ADB_RESET_ERRORS):
+            logger.warning(
+                "adb server 需要重置: attempt=%s, start=%s, probe=%s",
+                attempt,
+                _format_command_output(last_start_result) or "<empty>",
+                _format_command_output(last_probe_result) or "<empty>",
+            )
+            _reset_adb_server_locked(adb_binary)
+            return
+
+        logger.info(
+            "adb server 暂未就绪，等待后重试: attempt=%s, start=%s, probe=%s",
+            attempt,
+            _format_command_output(last_start_result) or "<empty>",
+            _format_command_output(last_probe_result) or "<empty>",
+        )
 
     logger.warning(
-        "adb server 初次启动或校验失败，尝试重置: start=%s, probe=%s",
-        _format_command_output(start_result) or "<empty>",
-        _format_command_output(probe_result) or "<empty>",
+        "adb server 多次启动或校验失败: start=%s, probe=%s",
+        _format_command_output(last_start_result) if last_start_result else "<empty>",
+        _format_command_output(last_probe_result) if last_probe_result else "<empty>",
     )
+
+    error_message = (
+        "启动 adb server 失败:\n"
+        f"start-server:\n{_format_command_output(last_start_result) if last_start_result else '<empty>'}\n"
+        f"devices:\n{_format_command_output(last_probe_result) if last_probe_result else '<empty>'}\n"
+        "请检查 5037 端口是否被其它 adb 或非 adb 进程占用，以及当前配置的 adb 是否可单独正常执行"
+    )
+    logger.warning(error_message)
+    raise RuntimeError(error_message)
+
+
+def _reset_adb_server_locked(adb_binary: str) -> None:
     _run_host_command(adb_binary, "kill-server")
     time.sleep(0.5)
 
@@ -367,12 +443,21 @@ def _ensure_adb_server() -> None:
     raise RuntimeError(error_message)
 
 
+def _combined_command_output(*results: subprocess.CompletedProcess[str]) -> str:
+    return "\n".join(_format_command_output(result) for result in results if result is not None)
+
+
+def _has_any(text: str, patterns: tuple[str, ...]) -> bool:
+    return any(pattern in text for pattern in patterns)
+
+
 def _detect_scrcpy_version() -> str:
     result = subprocess.run(
-        ["scrcpy", "--version"],
+        [_scrcpy_binary(), "--version"],
         capture_output=True,
         text=True,
         check=False,
+        creationflags=_subprocess_creationflags(),
     )
     if result.returncode != 0 or not result.stdout.strip():
         raise RuntimeError("无法获取 scrcpy 版本信息")
@@ -385,11 +470,13 @@ def _detect_scrcpy_version() -> str:
 
 
 def _detect_first_device_id() -> str:
+    ensure_adb_server()
     result = subprocess.run(
         [_adb_binary(), "devices"],
         capture_output=True,
         text=True,
         check=False,
+        creationflags=_subprocess_creationflags(),
     )
     if result.returncode != 0:
         raise RuntimeError(f"执行 `adb devices` 失败: {result.stderr.strip() or result.stdout.strip()}")
@@ -413,7 +500,8 @@ def _detect_first_device_id() -> str:
 
 
 def _resolve_scrcpy_server_path() -> Path:
-    scrcpy_binary = shutil.which("scrcpy")
+    configured_scrcpy_binary = os.environ.get("SCRCPY")
+    scrcpy_binary = configured_scrcpy_binary if configured_scrcpy_binary and Path(configured_scrcpy_binary).exists() else shutil.which("scrcpy")
     if not scrcpy_binary:
         raise RuntimeError("未找到 scrcpy，请先确认它已安装并加入 PATH")
 
@@ -466,9 +554,9 @@ def _terminate_process(process: subprocess.Popen) -> None:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="基于 scrcpy standalone server 的安卓屏幕镜像验证")
     parser.add_argument("--device-id", default=None, help="adb 设备序列号，不传则自动取第一台在线设备")
-    parser.add_argument("--bit-rate", type=int, default=8_000_000, help="视频码率，默认 8000000")
+    parser.add_argument("--bit-rate", type=int, default=4_000_000, help="视频码率，默认 4000000")
     parser.add_argument("--max-fps", type=int, default=30, help="最大帧率，默认 30")
-    parser.add_argument("--max-size", type=int, default=None, help="最大边长限制，例如 1600")
+    parser.add_argument("--max-size", type=int, default=1280, help="最大边长限制，默认 1280；传 0 表示原始分辨率")
     parser.add_argument(
         "--video-codec",
         choices=["h264", "h265", "av1"],

@@ -9,7 +9,7 @@ from utils.log import MyLogger
 # 这里放的是“示例路径”，方便使用者直接照着改。
 # 如果不想由项目覆盖系统 PATH，可保留为空字符串。
 EXAMPLE_TOOL_ROOTS = {
-        "tools.windows.adb_root_dir": r"C:\Android\platform-tools",
+        "tools.windows.adb_root_dir": "",
         "tools.windows.scrcpy_root_dir": r"D:\tools\scrcpy-win64-v4.0",
         "tools.macos.adb_root_dir": "/opt/homebrew/bin",
         "tools.macos.scrcpy_root_dir": "/opt/homebrew/bin",
@@ -22,18 +22,18 @@ DEFAULT_SETTINGS={
 
         "android.refresh_interval": 5,
         "android.auto_connect_remote": False,
-        "android.mirror.max_fps": 60,
-        "android.mirror.bit_rate": 8_000_000,
-        "android.mirror.max_size": 0,
-        "android.mirror.output_max_fps": 20,
-        "android.mirror.output_max_size": 0,
-        "android.mirror.jpeg_quality": 60,
+        "android.mirror.max_fps": 30,
+        "android.mirror.bit_rate": 4_000_000,
+        "android.mirror.max_size": 1280,
+        "android.mirror.output_max_fps": 15,
+        "android.mirror.output_max_size": 720,
+        "android.mirror.jpeg_quality": 55,
         "android.mirror.video_codec": "h264",
         "android.mirror.show": False,
         "android.tasks.enabled": [],
 
         # 工具根目录示例：
-        # - Windows adb_root_dir: adb.exe 所在目录
+        # - Windows adb_root_dir: adb.exe 所在目录；留空时优先使用 scrcpy_root_dir 下的 adb.exe
         # - Windows scrcpy_root_dir: scrcpy.exe 与 scrcpy-server 所在目录
         # - macOS adb_root_dir/scrcpy_root_dir: 常见为 /opt/homebrew/bin
         # 使用者可直接改成自己的真实安装目录。
@@ -82,8 +82,8 @@ class ConfigController():
             logger.info("当前平台无需覆盖 adb/scrcpy 路径: %s", platform.system())
             return
 
-        adb_root = self._get_tool_root_dir(platform_key, "adb")
         scrcpy_root = self._get_tool_root_dir(platform_key, "scrcpy")
+        adb_root = self._get_adb_root_dir(platform_key, scrcpy_root)
         candidate_dirs = [path for path in [adb_root, scrcpy_root] if path is not None and path.exists()]
         if candidate_dirs:
             self._prepend_to_path(candidate_dirs)
@@ -96,6 +96,7 @@ class ConfigController():
 
         scrcpy_executable = self._resolve_executable_from_root(scrcpy_root, ["scrcpy.exe", "scrcpy"])
         if scrcpy_executable is not None:
+            os.environ["SCRCPY"] = str(scrcpy_executable)
             logger.info("当前平台 scrcpy 路径已生效: %s", scrcpy_executable)
 
         scrcpy_server_path = self._resolve_executable_from_root(
@@ -128,6 +129,22 @@ class ConfigController():
                 logger.warning("配置的工具根目录不存在: %s=%s", property_name, path)
             return None
         return path
+
+    def _get_adb_root_dir(self, platform_key: str, scrcpy_root: Path | None) -> Path | None:
+        configured_adb_root = self._get_tool_root_dir(platform_key, "adb")
+        if platform_key != "windows":
+            return configured_adb_root
+
+        scrcpy_adb = self._resolve_executable_from_root(scrcpy_root, ["adb.exe", "adb"])
+        if scrcpy_adb is not None:
+            if configured_adb_root is not None and configured_adb_root != scrcpy_root:
+                logger.info(
+                    "Windows 下优先使用 scrcpy 目录内置 adb，忽略单独 adb_root_dir: %s",
+                    configured_adb_root,
+                )
+            return scrcpy_root
+
+        return configured_adb_root
 
     def _resolve_executable_from_root(self, root_dir: Path | None, candidates: list[str]) -> Path | None:
         if root_dir is None:
