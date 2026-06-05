@@ -18,18 +18,15 @@ EXAMPLE_TOOL_ROOTS = {
 
 DEFAULT_SETTINGS={
         "server.port": 8080,
-        "server.ip": "127.0.0.1",
+        "server.ip": "0.0.0.0",
 
         "android.refresh_interval": 5,
         "android.auto_connect_remote": False,
         "android.mirror.max_fps": 30,
         "android.mirror.bit_rate": 4_000_000,
-        "android.mirror.max_size": 1280,
-        "android.mirror.output_max_fps": 15,
-        "android.mirror.output_max_size": 720,
-        "android.mirror.jpeg_quality": 55,
+        "android.mirror.max_size": 0,
         "android.mirror.video_codec": "h264",
-        "android.mirror.show": False,
+        "android.mirror.h264_chunk_size": 32_768,
         "android.tasks.enabled": [],
 
         # 工具根目录示例：

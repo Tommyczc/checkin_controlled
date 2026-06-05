@@ -2,12 +2,9 @@ android:
   auto_connect_remote: false
   mirror:
     bit_rate: 4000000
-    jpeg_quality: 55
+    h264_chunk_size: 32768
     max_fps: 30
-    max_size: 1280
-    output_max_fps: 15
-    output_max_size: 720
-    show: false
+    max_size: 0
     video_codec: h264
   refresh_interval: 5
   tasks:

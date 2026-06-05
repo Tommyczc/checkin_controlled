@@ -87,6 +87,8 @@ class AndroidController:
         if video_codec is not None:
             self.screen_mirror.video_codec = video_codec
 
+        ##解锁屏幕
+        self.remote_operation.unlock()
         self.screen_mirror.start()
         logger.info("镜像流启动成功: %s", self.device_id)
         return self.screen_mirror
@@ -94,6 +96,7 @@ class AndroidController:
     def stop_mirror(self) -> None:
         logger.info("开始停止镜像流: %s", self.device_id)
         self.screen_mirror.stop()
+        self.remote_operation.screen_off()
         logger.info("镜像流已停止: %s", self.device_id)
 
     def snapshot(self, format: str = "opencv") -> Any:

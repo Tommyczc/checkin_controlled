@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import shlex
 import shutil
 import socket
@@ -63,7 +64,7 @@ class ScrcpyStreamer:
         device_id: str,
         max_fps: int = 30,
         bit_rate: int = 4_000_000,
-        max_size: Optional[int] = 1280,
+        max_size: Optional[int] = 0,
         video_codec: str = "h264",
         server_version: Optional[str] = None,
     ):
@@ -102,6 +103,7 @@ class ScrcpyStreamer:
         _ensure_binary("adb")
         _ensure_binary("scrcpy")
         ensure_adb_server()
+        self._prime_video_size()
 
         server_path = _resolve_scrcpy_server_path()
         self._local_port = _pick_free_port()
@@ -148,12 +150,28 @@ class ScrcpyStreamer:
             raise RuntimeError("Scrcpy stream not started")
         return self._video_stream
 
+    def read_video_chunk(self, chunk_size: int = 32768) -> bytes:
+        """直接读取 scrcpy raw H.264 字节流，供 websocket 低延迟透传。"""
+        if self._video_socket is None:
+            raise RuntimeError("Scrcpy stream not started")
+        return self._video_socket.recv(chunk_size)
+
     def is_running(self) -> bool:
         return self.server_process is not None and self.server_process.poll() is None
 
     def get_video_size(self) -> Optional[tuple[int, int]]:
         with self._video_size_lock:
             return self._video_size
+
+    def get_or_detect_video_size(self) -> Optional[tuple[int, int]]:
+        video_size = self.get_video_size()
+        if video_size is not None:
+            return video_size
+
+        video_size = self._detect_device_video_size()
+        if video_size is not None:
+            self._set_video_size(video_size)
+        return video_size
 
     def open_container(self) -> av.container.InputContainer:
         """使用 PyAV 打开 scrcpy 原始视频流。"""
@@ -234,6 +252,41 @@ class ScrcpyStreamer:
             )
         return result
 
+    def _prime_video_size(self) -> None:
+        video_size = self._detect_device_video_size()
+        if video_size is None:
+            logger.warning("启动镜像前未能获取设备屏幕尺寸: %s", self.device_id)
+            return
+
+        self._set_video_size(video_size)
+        logger.info("启动镜像前已获取设备屏幕尺寸: device_id=%s, video_size=%s", self.device_id, video_size)
+
+    def _detect_device_video_size(self) -> Optional[tuple[int, int]]:
+        result = self._run_adb_command("shell", "wm", "size")
+        if result.returncode != 0:
+            logger.warning(
+                "获取设备屏幕尺寸失败: device_id=%s, output=%s",
+                self.device_id,
+                result.stderr.strip() or result.stdout.strip(),
+            )
+            return None
+
+        video_size = _parse_wm_size(result.stdout)
+        if video_size is None:
+            return None
+
+        orientation = self._detect_surface_orientation()
+        if orientation in (1, 3):
+            width, height = video_size
+            return height, width
+        return video_size
+
+    def _detect_surface_orientation(self) -> Optional[int]:
+        result = self._run_adb_command("shell", "dumpsys", "input")
+        if result.returncode != 0:
+            return None
+        return _parse_surface_orientation(result.stdout)
+
     def _start_server_process(self) -> None:
         server_args = [
             self._server_version(),
@@ -296,6 +349,7 @@ class ScrcpyStreamer:
                 # create_connection() 会把超时保留在 socket 上，后续 PyAV 读流时
                 # 会因此在暂时没有新帧时抛 TimeoutError，这里恢复为阻塞模式。
                 sock.settimeout(None)
+                sock.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
                 self._video_socket = sock
                 self._video_stream = sock.makefile("rb")
                 logger.info("scrcpy 视频 socket 建连成功: device_id=%s, local_port=%s", self.device_id, local_port)
@@ -451,6 +505,28 @@ def _has_any(text: str, patterns: tuple[str, ...]) -> bool:
     return any(pattern in text for pattern in patterns)
 
 
+def _parse_wm_size(output: str) -> Optional[tuple[int, int]]:
+    preferred_labels = ("Override size", "Physical size")
+    for label in preferred_labels:
+        match = re.search(rf"{re.escape(label)}:\s*(\d+)x(\d+)", output)
+        if match:
+            return int(match.group(1)), int(match.group(2))
+
+    match = re.search(r"(\d+)x(\d+)", output)
+    if match:
+        return int(match.group(1)), int(match.group(2))
+
+    logger.warning("无法解析 wm size 输出: %s", output.strip())
+    return None
+
+
+def _parse_surface_orientation(output: str) -> Optional[int]:
+    match = re.search(r"SurfaceOrientation:\s*(\d+)", output)
+    if not match:
+        return None
+    return int(match.group(1))
+
+
 def _detect_scrcpy_version() -> str:
     result = subprocess.run(
         [_scrcpy_binary(), "--version"],
@@ -556,7 +632,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--device-id", default=None, help="adb 设备序列号，不传则自动取第一台在线设备")
     parser.add_argument("--bit-rate", type=int, default=4_000_000, help="视频码率，默认 4000000")
     parser.add_argument("--max-fps", type=int, default=30, help="最大帧率，默认 30")
-    parser.add_argument("--max-size", type=int, default=1280, help="最大边长限制，默认 1280；传 0 表示原始分辨率")
+    parser.add_argument("--max-size", type=int, default=0, help="最大边长限制，默认 0 表示原始分辨率")
     parser.add_argument(
         "--video-codec",
         choices=["h264", "h265", "av1"],
