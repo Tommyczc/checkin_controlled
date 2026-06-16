@@ -2,6 +2,7 @@
 colorlog ##log 要用的包
 numpy
 fastapi
+uvicorn[standard]
 ## 配置包
 pyscfg
 

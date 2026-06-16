@@ -10,12 +10,12 @@ android:
   tasks:
     enabled: []
 server:
-  ip: 0.0.0.0
+  ip: 127.0.0.1
   port: 8000
 tools:
   macos:
     adb_root_dir: ''
     scrcpy_root_dir: ''
   windows:
-    adb_root_dir: ''
-    scrcpy_root_dir: ''
+    adb_root_dir: C:\Users\czc\Downloads\scrcpy-win64-v3.3.3
+    scrcpy_root_dir: C:\Users\czc\Downloads\scrcpy-win64-v3.3.3

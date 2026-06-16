@@ -9,7 +9,9 @@ annotated-doc==0.0.4
 annotated-types==0.7.0
     # via pydantic
 anyio==4.13.0
-    # via starlette
+    # via
+    #   starlette
+    #   watchfiles
 apkutils2==1.0.0
     # via adbutils
 av==14.0.1
@@ -20,6 +22,8 @@ charset-normalizer==3.4.7
     # via requests
 cigam==0.0.3
     # via apkutils2
+click==8.4.1
+    # via uvicorn
 colorlog==6.10.1
     # via -r requirements.in
 decorator==5.3.1
@@ -30,6 +34,10 @@ exceptiongroup==1.3.1
     # via anyio
 fastapi==0.136.3
     # via -r requirements.in
+h11==0.16.0
+    # via uvicorn
+httptools==0.8.0
+    # via uvicorn
 idna==3.17
     # via
     #   anyio
@@ -58,8 +66,12 @@ pyelftools==0.33
     # via apkutils2
 pyscfg==0.2.1
     # via -r requirements.in
+python-dotenv==1.2.2
+    # via uvicorn
 pyyaml==6.0.3
-    # via pyscfg
+    # via
+    #   pyscfg
+    #   uvicorn
 requests==2.34.2
     # via
     #   adbutils
@@ -79,6 +91,7 @@ typing-extensions==4.15.0
     #   pydantic-core
     #   starlette
     #   typing-inspection
+    #   uvicorn
 typing-inspection==0.4.2
     # via
     #   fastapi
@@ -87,5 +100,13 @@ uiautomator2==3.2.9
     # via -r requirements.in
 urllib3==2.7.0
     # via requests
+uvicorn==0.49.0
+    # via -r requirements.in
+uvloop==0.22.1
+    # via uvicorn
+watchfiles==1.2.0
+    # via uvicorn
+websockets==16.0
+    # via uvicorn
 xmltodict==1.0.4
     # via apkutils2
