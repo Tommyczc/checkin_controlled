@@ -2,7 +2,7 @@
 colorlog ##log 要用的包
 numpy
 fastapi
-uvicorn[standard]
+uvicorn
 ## 配置包
 pyscfg
 
@@ -13,7 +13,7 @@ adbutils
 av
 #PyDroidCTRL
 
-## ios包 (ios已弃用)
-#pymobiledevice3
-#facebook-wda
+## ios包
+pymobiledevice3
+facebook-wda
 #tidevice

@@ -9,10 +9,21 @@ android:
   refresh_interval: 5
   tasks:
     enabled: []
+ios:
+  mjpeg:
+    device_port: 9100
+    local_port_base: 19100
+  replaykit:
+    device_port: 27777
+    local_port_base: 27777
+  wda:
+    device_port: 8100
+    local_port_base: 18100
 server:
   ip: 127.0.0.1
   port: 8000
 tools:
+  adb_server_port: 5037
   macos:
     adb_root_dir: ''
     scrcpy_root_dir: ''

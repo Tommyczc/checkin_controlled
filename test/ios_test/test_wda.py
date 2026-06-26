@@ -3,7 +3,7 @@ import time
 
 from utils.pack_tool import run_cmd
 
-run_cmd("tidevice xctest -B com.facebook.WebDriverAgentRunner.Tommy20260527.xctrunner","unable to connect to webdriver")
+run_cmd("tidevice xctest -B com.facebook.WebDriverAgentRunner.xctrunner.BR4JH5QHF7","unable to connect to webdriver")
 c = wda.USBClient(udid="00008150-000958C13439401C")
 
 

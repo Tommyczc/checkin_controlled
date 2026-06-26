@@ -8,4 +8,4 @@ async def launch_app(bundle_id: str):
         session_id = await wda_client.start_session(bundle_id=bundle_id)
         print(f"✅ 应用已启动，会话ID: {session_id}")
 
-asyncio.run(launch_app("com.laiwang.DingTalk"))
+asyncio.run(launch_app("com.facebook.WebDriverAgentRunner.xctrunner.BR4JH5QHF7"))

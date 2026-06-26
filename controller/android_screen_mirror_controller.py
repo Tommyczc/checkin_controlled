@@ -56,7 +56,7 @@ class _StreamDrainer(threading.Thread):
         return "".join(self._chunks).strip()
 
 
-class ScrcpyStreamer:
+class AndroidScrcpyStreamer:
     """基于 scrcpy standalone server 的单设备屏幕视频流控制器。"""
 
     def __init__(
@@ -210,7 +210,7 @@ class ScrcpyStreamer:
             logger.info("本地预览已结束: %s", self.device_id)
 
     def _adb_cmd(self, *args: str) -> list[str]:
-        return [_adb_binary(), "-s", self.device_id, *args]
+        return _adb_host_cmd("-s", self.device_id, *args)
 
     def _push_server(self, server_path: Path) -> None:
         logger.info("开始推送 scrcpy-server: device_id=%s, server_path=%s", self.device_id, server_path)
@@ -390,6 +390,32 @@ def _adb_binary() -> str:
     return os.environ.get("ADB") or "adb"
 
 
+def adb_server_port() -> int:
+    value = os.environ.get("ADB_SERVER_PORT") or os.environ.get("ANDROID_ADB_SERVER_PORT") or "5037"
+    try:
+        port = int(value)
+    except (TypeError, ValueError):
+        logger.warning("adb server 端口环境变量无效，使用默认 5037: %s", value)
+        return 5037
+
+    if not 1 <= port <= 65535:
+        logger.warning("adb server 端口环境变量超出范围，使用默认 5037: %s", value)
+        return 5037
+    return port
+
+
+def adb_server_host() -> str:
+    return os.environ.get("ADB_SERVER_HOST") or "127.0.0.1"
+
+
+def _adb_server_args() -> list[str]:
+    return ["-H", adb_server_host(), "-P", str(adb_server_port())]
+
+
+def _adb_host_cmd(*args: str) -> list[str]:
+    return [_adb_binary(), *_adb_server_args(), *args]
+
+
 def _scrcpy_binary() -> str:
     return os.environ.get("SCRCPY") or "scrcpy"
 
@@ -398,9 +424,9 @@ def _subprocess_creationflags() -> int:
     return subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
 
 
-def _run_host_command(*args: str) -> subprocess.CompletedProcess[str]:
+def _run_adb_host_command(*args: str) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        list(args),
+        _adb_host_cmd(*args),
         capture_output=True,
         text=True,
         check=False,
@@ -413,8 +439,8 @@ def _format_command_output(result: subprocess.CompletedProcess[str]) -> str:
     return "\n".join(parts)
 
 
-def _probe_adb_server(adb_binary: str) -> subprocess.CompletedProcess[str]:
-    return _run_host_command(adb_binary, "devices")
+def _probe_adb_server() -> subprocess.CompletedProcess[str]:
+    return _run_adb_host_command("devices")
 
 
 def ensure_adb_server(allow_reset: bool = False) -> None:
@@ -425,15 +451,15 @@ def ensure_adb_server(allow_reset: bool = False) -> None:
 
 def _ensure_adb_server_locked(allow_reset: bool = False) -> None:
     adb_binary = _adb_binary()
-    logger.info("检查 adb server 状态: %s", adb_binary)
+    logger.info("检查 adb server 状态: binary=%s, host=%s, port=%s", adb_binary, adb_server_host(), adb_server_port())
 
     last_start_result: subprocess.CompletedProcess[str] | None = None
     last_probe_result: subprocess.CompletedProcess[str] | None = None
 
     for attempt in range(1, 6):
-        last_start_result = _run_host_command(adb_binary, "start-server")
+        last_start_result = _run_adb_host_command("start-server")
         time.sleep(0.15 * attempt)
-        last_probe_result = _probe_adb_server(adb_binary)
+        last_probe_result = _probe_adb_server()
 
         if last_start_result.returncode == 0 and last_probe_result.returncode == 0:
             output = _format_command_output(last_start_result)
@@ -449,7 +475,7 @@ def _ensure_adb_server_locked(allow_reset: bool = False) -> None:
                 _format_command_output(last_start_result) or "<empty>",
                 _format_command_output(last_probe_result) or "<empty>",
             )
-            _reset_adb_server_locked(adb_binary)
+            _reset_adb_server_locked()
             return
 
         logger.info(
@@ -475,12 +501,12 @@ def _ensure_adb_server_locked(allow_reset: bool = False) -> None:
     raise RuntimeError(error_message)
 
 
-def _reset_adb_server_locked(adb_binary: str) -> None:
-    _run_host_command(adb_binary, "kill-server")
+def _reset_adb_server_locked() -> None:
+    _run_adb_host_command("kill-server")
     time.sleep(0.5)
 
-    retry_start_result = _run_host_command(adb_binary, "start-server")
-    retry_probe_result = _probe_adb_server(adb_binary)
+    retry_start_result = _run_adb_host_command("start-server")
+    retry_probe_result = _probe_adb_server()
     if retry_start_result.returncode == 0 and retry_probe_result.returncode == 0:
         output = _format_command_output(retry_start_result)
         if output:
@@ -548,7 +574,7 @@ def _detect_scrcpy_version() -> str:
 def _detect_first_device_id() -> str:
     ensure_adb_server()
     result = subprocess.run(
-        [_adb_binary(), "devices"],
+        _adb_host_cmd("devices"),
         capture_output=True,
         text=True,
         check=False,

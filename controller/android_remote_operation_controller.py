@@ -1,24 +1,24 @@
 from __future__ import annotations
 
+import sys
 import time
 from typing import Any, Optional
 
-import uiautomator2 as u2
-from controller.screen_mirror_controller import ensure_adb_server
+from controller.android_screen_mirror_controller import ensure_adb_server, adb_server_host, adb_server_port
 from utils.log import MyLogger
 
 logger_instance = MyLogger()
 logger = logger_instance.get_logger()
 
 
-class RemoteOperationController:
+class AndroidRemoteOperationController:
     """基于 uiautomator2 的单设备远程操作控制器。"""
 
     def __init__(self, device_id: str, auto_connect: bool = False, healthcheck: bool = True):
         self.device_id = device_id
         self.auto_connect = auto_connect
         self.healthcheck = healthcheck
-        self._device: Optional[u2.Device] = None
+        self._device: Optional[Any] = None
         logger.info(
             "远程操作控制器初始化完成: device_id=%s, auto_connect=%s, healthcheck=%s",
             device_id,
@@ -30,12 +30,12 @@ class RemoteOperationController:
             self.connect()
 
     @property
-    def device(self) -> u2.Device:
+    def device(self) -> Any:
         if self._device is None:
             raise RuntimeError("uiautomator2 尚未连接，请先调用 connect()")
         return self._device
 
-    def connect(self, force_reconnect: bool = False) -> u2.Device:
+    def connect(self, force_reconnect: bool = False) -> Any:
         """初始化并返回 uiautomator2 设备连接。"""
         if self._device is not None and not force_reconnect:
             logger.info("复用已有 uiautomator2 连接: %s", self.device_id)
@@ -43,6 +43,7 @@ class RemoteOperationController:
 
         logger.info("开始建立 uiautomator2 连接: %s", self.device_id)
         ensure_adb_server()
+        u2 = _uiautomator2()
         try:
             device = u2.connect(self.device_id)
         except Exception as exc:
@@ -128,3 +129,19 @@ class RemoteOperationController:
 def _should_reset_adb(exc: Exception) -> bool:
     message = str(exc).lower()
     return "adb server version" in message or "doesn't match this client" in message or "protocol fault" in message
+
+
+def _uiautomator2():
+    import adbutils
+
+    adb_client = adbutils.AdbClient(host=adb_server_host(), port=adb_server_port())
+    adbutils.adb = adb_client
+
+    import uiautomator2 as u2
+
+    for module_name, module in list(sys.modules.items()):
+        if module_name.startswith("uiautomator2") and hasattr(module, "adb"):
+            setattr(module, "adb", adb_client)
+
+    logger.info("uiautomator2 adb 客户端已绑定: host=%s, port=%s", adb_server_host(), adb_server_port())
+    return u2

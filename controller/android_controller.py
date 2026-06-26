@@ -3,8 +3,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any, Optional
 
-from controller.remote_operation_controller import RemoteOperationController
-from controller.screen_mirror_controller import ScrcpyStreamer
+from controller.android_remote_operation_controller import AndroidRemoteOperationController
+from controller.android_screen_mirror_controller import AndroidScrcpyStreamer
 from utils.log import MyLogger
 
 logger_instance = MyLogger()
@@ -38,15 +38,15 @@ class AndroidController:
     def __init__(
         self,
         device_info: AndroidDeviceInfo,
-        remote_operation: Optional[RemoteOperationController] = None,
-        screen_mirror: Optional[ScrcpyStreamer] = None,
+        remote_operation: Optional[AndroidRemoteOperationController] = None,
+        screen_mirror: Optional[AndroidScrcpyStreamer] = None,
     ):
         self.device_info = device_info
-        self.remote_operation = remote_operation or RemoteOperationController(
+        self.remote_operation = remote_operation or AndroidRemoteOperationController(
             device_id=device_info.device_id,
             auto_connect=False,
         )
-        self.screen_mirror = screen_mirror or ScrcpyStreamer(device_id=device_info.device_id)
+        self.screen_mirror = screen_mirror or AndroidScrcpyStreamer(device_id=device_info.device_id)
         logger.info("单设备控制器初始化完成: %s", device_info.to_dict())
 
     @property
@@ -57,7 +57,7 @@ class AndroidController:
         logger.info("更新设备信息: %s", device_info.to_dict())
         self.device_info = device_info
 
-    def connect_remote(self, force_reconnect: bool = False) -> RemoteOperationController:
+    def connect_remote(self, force_reconnect: bool = False) -> AndroidRemoteOperationController:
         logger.info("开始连接远程操作控制器: device_id=%s, force_reconnect=%s", self.device_id, force_reconnect)
         self.remote_operation.connect(force_reconnect=force_reconnect)
         logger.info("远程操作控制器连接成功: %s", self.device_id)
@@ -69,7 +69,7 @@ class AndroidController:
         bit_rate: Optional[int] = None,
         max_size: Optional[int] = None,
         video_codec: Optional[str] = None,
-    ) -> ScrcpyStreamer:
+    ) -> AndroidScrcpyStreamer:
         logger.info(
             "开始启动镜像流: device_id=%s, max_fps=%s, bit_rate=%s, max_size=%s, video_codec=%s",
             self.device_id,

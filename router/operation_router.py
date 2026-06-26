@@ -108,7 +108,7 @@ async def operation_websocket(websocket: WebSocket, device_id: str):
                 continue
 
             try:
-                logger.info("执行远程控制动作: device_id=%s, action=%s", device_id, action)
+                logger.info("执行远程控制动作: device_id=%s, action=%s, payload=%s", device_id, action, _action_payload_summary(payload))
                 result = _execute_action(remote, action, payload)
                 await websocket.send_json(
                     {
@@ -119,7 +119,13 @@ async def operation_websocket(websocket: WebSocket, device_id: str):
                     }
                 )
             except Exception as exc:
-                logger.warning("远程控制动作执行失败: device_id=%s, action=%s, error=%s", device_id, action, exc)
+                logger.warning(
+                    "远程控制动作执行失败: device_id=%s, action=%s, payload=%s, error=%s",
+                    device_id,
+                    action,
+                    _action_payload_summary(payload),
+                    exc,
+                )
                 await websocket.send_json(
                     {
                         "ok": False,
@@ -131,3 +137,19 @@ async def operation_websocket(websocket: WebSocket, device_id: str):
     except WebSocketDisconnect:
         logger.info("远程控制 websocket 已断开: %s", device_id)
         return
+
+
+def _action_payload_summary(payload: dict) -> dict:
+    keys = (
+        "x",
+        "y",
+        "fx",
+        "fy",
+        "tx",
+        "ty",
+        "duration",
+        "key",
+        "package_name",
+        "clear",
+    )
+    return {key: payload[key] for key in keys if key in payload}

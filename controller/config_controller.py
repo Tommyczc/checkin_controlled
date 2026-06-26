@@ -28,6 +28,14 @@ DEFAULT_SETTINGS={
         "android.mirror.video_codec": "h264",
         "android.mirror.h264_chunk_size": 32_768,
         "android.tasks.enabled": [],
+        "tools.adb_server_port": 5037,
+
+        "ios.wda.device_port": 8100,
+        "ios.wda.local_port_base": 18100,
+        "ios.mjpeg.device_port": 9100,
+        "ios.mjpeg.local_port_base": 19100,
+        "ios.replaykit.device_port": 27777,
+        "ios.replaykit.local_port_base": 27777,
 
         # 工具根目录示例：
         # - Windows adb_root_dir: adb.exe 所在目录；留空时优先使用 scrcpy_root_dir 下的 adb.exe
@@ -74,6 +82,8 @@ class ConfigController():
             logger.warning("删除配置项失败，配置不存在: %s", property)
 
     def _configure_platform_tool_paths(self) -> None:
+        self._configure_adb_server_port()
+
         platform_key = self._get_platform_key()
         if platform_key is None:
             logger.info("当前平台无需覆盖 adb/scrcpy 路径: %s", platform.system())
@@ -126,6 +136,22 @@ class ConfigController():
                 logger.warning("配置的工具根目录不存在: %s=%s", property_name, path)
             return None
         return path
+
+    def _configure_adb_server_port(self) -> None:
+        value = self.get("tools.adb_server_port")
+        try:
+            port = int(value)
+        except (TypeError, ValueError):
+            port = int(DEFAULT_SETTINGS["tools.adb_server_port"])
+            logger.warning("adb server 端口配置无效，使用默认值: %s", value)
+
+        if not 1 <= port <= 65535:
+            logger.warning("adb server 端口超出范围，使用默认值: %s", port)
+            port = int(DEFAULT_SETTINGS["tools.adb_server_port"])
+
+        os.environ["ADB_SERVER_PORT"] = str(port)
+        os.environ["ANDROID_ADB_SERVER_PORT"] = str(port)
+        logger.info("adb server 端口已配置: %s", port)
 
     def _get_adb_root_dir(self, platform_key: str, scrcpy_root: Path | None) -> Path | None:
         configured_adb_root = self._get_tool_root_dir(platform_key, "adb")
